@@ -144,6 +144,7 @@ def jsonKeys2int(x):
 #Hybrid quantum annealing using dwave
 def QuantumAnnealing(J_s, h_s, c_s):
     path=f'./saved_models/lenet/SG/embedding_{J_s.shape[0]}-{J_s.shape[1]}.json'
+    n_reads, t_ann = 100, 2
     #load stored embedding (if any)
     try:
         f = open(path,)
@@ -158,17 +159,21 @@ def QuantumAnnealing(J_s, h_s, c_s):
     E_tot=0
     #use sampler to minimize each ising model
     for i in tqdm.tqdm(range(c_s.shape[0])):
-        h, J = h_s[i].numpy(), J_s.numpy()
+        h, J, c = h_s[i].numpy(), J_s.numpy(), c_s[i].numpy()
+        h = {i:h[i] for i in range(len(h))}
+        J = {(i,j):J[i,j] for i in range(J.shape[0]) for j in range(J.shape[1])}
+        c = {i:c[i] for i in range(len(c))}
         if embedding == None:
-            sampleset = sampler.sample_ising(h, J, return_embedding=True, answer_mode="raw", 
-                                             num_reads=1000, annealing_time=50)
+            sampleset = sampler.sample_ising(h, J, initial_state=c, return_embedding=True, 
+                                             num_reads=n_reads, annealing_time=t_ann,
+                                             answer_mode='histogram')
             embedding = sampleset.info["embedding_context"]["embedding"]
             sampler = FixedEmbeddingComposite(DWaveSampler(), embedding)
             with open(path, 'w') as f:
                 json.dump(embedding, f)
         else:
-            sampleset = sampler.sample_ising(h, J, answer_mode="raw", 
-                                             num_reads=1000, annealing_time=50)
+            sampleset = sampler.sample_ising(h, J, initial_state=c, num_reads=n_reads, 
+                                             annealing_time=t_ann, answer_mode='histogram')
         #return spin configuration of minimum energy
         c_s[i] = torch.tensor(list(sampleset.samples()[0].values()))
         E_tot+=list(sampleset.data(fields=['energy']))[0][0]

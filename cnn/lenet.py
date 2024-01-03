@@ -46,7 +46,7 @@ class Lenet(pl.LightningModule):
         self.conv1 = nn.Conv2d(1, 6, kernel_size=5, padding=0, bias=False).requires_grad_(False)
         self.conv2 = nn.Conv2d(6, 16, kernel_size=5, padding=0, bias=False).requires_grad_(False)
         self.conv3 = nn.Conv2d(16, 32, kernel_size=5, padding=0, bias=False).requires_grad_(False)
-        self.linear1 = nn.Linear(32, 24, bias=False)#.requires_grad_(False)
+        self.linear1 = nn.Linear(32, 24, bias=False).requires_grad_(False)
         self.linear2 = nn.Linear(24, n_cat, bias=False)#.requires_grad_(False)
         
     def init(self):
@@ -149,7 +149,7 @@ class Lenet_backward(pl.LightningModule):
     def forward_return_all(self, x):
         #x=F.one_hot(x, num_classes=10)*10+1
         #x = self.act_fn_out_inv(x)
-        x = F.one_hot(x, num_classes=10)*5.+0.1
+        x = F.one_hot(x, num_classes=10)*1.#*5.+0.1
         x = self.act_fn_inv(x)
         y1 = self.linear2(x)
         y1 = self.act_fn_inv(y1)
@@ -233,17 +233,15 @@ class CNN(pl.LightningModule):
         
     def training_step_ising(self, batch, batch_idx, N_steps):
         #parameters
-        n_layer, k, stride, L, nbit, n_rep = 5, 5, 1, 10, 4, 10
-        quantum=True
+        n_layer, k, stride, L, nbit, n_rep = 5, 5, 1, 0.5, 4, 10
+        quantum=False
         beta_in, beta_final = 0.4, 50000
         db=(beta_final - beta_in)/(N_steps*n_rep)
         #propagate training batch backward
         x, y = batch
         preds_back = self.lenet_backward.forward_return_all(y)
-        L_list=[1,1,1,1,1]
         #cycle over layers
-        for i_layer in [3,4]:
-            L=L_list[i_layer]
+        for i_layer in [2,3,4]:
             #propagate training batch forward
             preds = self.lenet.forward_return_all(x)
             l_list=[self.lenet.conv1, self.lenet.conv2, self.lenet.conv3,
@@ -324,6 +322,7 @@ test_loader = data.DataLoader(dataset_test, batch_size=len(dataset_test), num_wo
 
 log_folder="./saved_models/lenet/"
 os.makedirs(log_folder, exist_ok=True)
+os.makedirs(log_folder+'SG/', exist_ok=True)
 
 train = len(sys.argv)>1 and sys.argv[1] == 'train'
 load = len(sys.argv)>1 and sys.argv[1] == 'load'
@@ -355,7 +354,7 @@ if train:
 
 # load checkpoint
 if load:
-    checkpoint = log_folder+"lightning_logs/version_392/checkpoints/epoch=19-step=160.ckpt"
+    checkpoint = log_folder+"lightning_logs/version_11/checkpoints/epoch=24-step=200.ckpt"
     cnn = CNN.load_from_checkpoint(checkpoint)
 
     cnn.lenet1=copy.deepcopy(cnn.lenet)
@@ -376,11 +375,11 @@ cnn.update()
 
 #load weights trained in the squared network
 if load_sq:
-    w1=torch.load(path+'SG/w1.pt')
-    w2=torch.load(path+'SG/w2.pt')
-    c1=torch.load(path+'SG/c1.pt')
-    c2=torch.load(path+'SG/c2.pt')
-    c3=torch.load(path+'SG/c3.pt')
+    w1=torch.load(log_folder+'SG/w1.pt')
+    w2=torch.load(log_folder+'SG/w2.pt')
+    c1=torch.load(log_folder+'SG/c1.pt')
+    c2=torch.load(log_folder+'SG/c2.pt')
+    c3=torch.load(log_folder+'SG/c3.pt')
     cnn.lenet.linear1.weight=nn.Parameter(w1)
     cnn.lenet.linear2.weight=nn.Parameter(w2)
     cnn.lenet.conv1.weight=nn.Parameter(c1)
