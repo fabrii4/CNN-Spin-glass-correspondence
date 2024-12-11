@@ -277,5 +277,5 @@ def save_plot_acc(list_acc, path, label):
         with open(path+'acc_log.csv', "ab") as f:
             np.savetxt(f, np.append(list_acc,[[label]],axis=1), delimiter=",")
     #plot accuracy
-    #plot_acc(path)
+    plot_acc(path)
 
