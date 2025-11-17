@@ -90,7 +90,7 @@ class CNN(pl.LightningModule):
         self.network.init()
         self.update()
         
-    def training_step_ising(self, batch, batch_idx, N_steps, acc, nbit, n_rep, beta_in, beta_final, L_list,  layer_list, alpha, quantum, log_folder):
+    def training_step_ising(self, batch, batch_idx, N_steps, acc, nbit, n_rep, beta_in, beta_final, L_list,  layer_list, alpha, training, log_folder, n_reads, t_ann, n_shots, tau):
         #beta
         g=np.log(beta_final/beta_in)/(N_steps)
         beta=beta_in*np.exp(g*batch_idx)
@@ -114,11 +114,26 @@ class CNN(pl.LightningModule):
             k_size = 0 if len(s.shape)<=2 else self.network.layer_list[i_layer].kernel_size[0]
             J_s, h_s, c_s = la.layer_to_ising(s, f1z, c, k_size, L, nbit)
             #minimize hamiltonians
-            if quantum:
-                #quantum
+            if training=="quantum annealing":
                 c_s, E_tot = la.QuantumAnnealing(J_s, h_s, c_s, batch_idx, log_folder)
                 #c_s, E_tot = la.QuantumAnnealing_in_state(J_s, h_s, c_s, log_folder)
                 print("step "+str(batch_idx+1)+"/"+str(N_steps), "layer", i_layer, "acc "+"{:.4f}".format(acc), "E_tot", E_tot)
+            elif training=="simulated quantum annealing":
+                #multiprocess with pool
+                n_proc=min(mp.cpu_count(),c_s.shape[0])
+                args=zip(repeat(J_s), repeat(h_s), repeat(c_s), repeat(n_reads), 
+                         repeat(t_ann), range(c_s.shape[0]))
+                with mp.Pool(n_proc, initializer=torch.seed) as pool:
+                    pool.starmap(la.SimulatedQuantumAnnealing, args)
+                print("step "+str(batch_idx+1)+"/"+str(N_steps), "layer", i_layer, "acc "+"{:.4f}".format(acc))#, "E_tot", E_tot)
+            elif training =="imaginary time evolution":
+                #multiprocess with pool
+                n_proc=min(mp.cpu_count(),c_s.shape[0])
+                args=zip(repeat(J_s), repeat(h_s), repeat(c_s), repeat(n_shots), 
+                         repeat(tau), range(c_s.shape[0]))
+                with mp.Pool(n_proc, initializer=torch.seed) as pool:
+                    pool.starmap(la.ITEMC, args)
+                print("step "+str(batch_idx+1)+"/"+str(N_steps), "layer", i_layer, "acc "+"{:.4f}".format(acc))
             else:
                 #classical
                 info="step "+str(batch_idx+1)+"/"+str(N_steps)+" layer "+str(i_layer)+" acc "+"{:.4f}".format(acc)
@@ -134,7 +149,7 @@ class CNN(pl.LightningModule):
         #update weights in backward network
         self.update()
         
-    def training_step_ising_act(self, batch, batch_idx, N_steps, acc, nbit, n_rep, beta_in, beta_final, L_list,  layer_list, alpha, quantum, log_folder):
+    def training_step_ising_act(self, batch, batch_idx, N_steps, acc, nbit, n_rep, beta_in, beta_final, L_list,  layer_list, alpha, training, log_folder, n_reads, t_ann, n_shots, tau):
         n_rep = n_rep if batch_idx<10 else 1
         #beta
         g=np.log(beta_final/beta_in)/(N_steps)
@@ -178,11 +193,30 @@ class CNN(pl.LightningModule):
             k_size = 0 if len(s.shape)<=2 else self.network.layer_list[i_layer].kernel_size[0]
             J_s, h_s, c_s = la.layer_to_ising_act(s, gamma, f1z, c, k_size, L, nbit)
             #minimize hamiltonians
-            if quantum:
+            if training=="quantum annealing":
                 #quantum
                 c_s, E_tot = la.QuantumAnnealing(J_s, h_s, c_s, batch_idx, log_folder)
                 #c_s, E_tot = la.QuantumAnnealing_in_state(J_s, h_s, c_s, log_folder)
                 print("step "+str(batch_idx+1)+"/"+str(N_steps), "layer", i_layer, "acc "+"{:.4f}".format(acc), "E_tot", E_tot)
+            elif training=="simulated quantum annealing":
+                #quantum
+                #c_s, E_tot = la.SimulatedQuantumAnnealing(J_s, h_s, c_s, batch_idx, log_folder)
+                #c_s, E_tot = la.QuantumAnnealing_in_state(J_s, h_s, c_s, log_folder)
+                #multiprocess with pool
+                n_proc=min(mp.cpu_count(),c_s.shape[0])
+                args=zip(repeat(J_s), repeat(h_s), repeat(c_s), repeat(n_reads), 
+                         repeat(t_ann), range(c_s.shape[0]))
+                with mp.Pool(n_proc, initializer=torch.seed) as pool:
+                    pool.starmap(la.SimulatedQuantumAnnealing, args)
+                print("step "+str(batch_idx+1)+"/"+str(N_steps), "layer", i_layer, "acc "+"{:.4f}".format(acc))#, "E_tot", E_tot)
+            elif training =="imaginary time evolution":
+                #multiprocess with pool
+                n_proc=min(mp.cpu_count(),c_s.shape[0])
+                args=zip(repeat(J_s), repeat(h_s), repeat(c_s), repeat(n_shots), 
+                         repeat(tau), range(c_s.shape[0]))
+                with mp.Pool(n_proc, initializer=torch.seed) as pool:
+                    pool.starmap(la.ITEMC, args)
+                print("step "+str(batch_idx+1)+"/"+str(N_steps), "layer", i_layer, "acc "+"{:.4f}".format(acc))    
             else:
                 #classical
                 info="step "+str(batch_idx+1)+"/"+str(N_steps)+" layer "+str(i_layer)+" acc "+"{:.4f}".format(acc)
@@ -249,7 +283,7 @@ def plot_acc(path):
     color = np.insert(color,0, [1,0,0,1], axis=0)
     color=np.flip(color[:len(acc_log)],axis=0)
     labels=['1st','2nd','3nd','3rd last', '2nd last','last',]
-    type_l=[' BP', ' SA', ' QA']
+    type_l=[' BP', ' SA', ' QA', ' SQA', ' ITE']
     #plot
     plt.style.use('dark_background')
     plt.figure(figsize=(15,10))
@@ -277,5 +311,5 @@ def save_plot_acc(list_acc, path, label):
         with open(path+'acc_log.csv', "ab") as f:
             np.savetxt(f, np.append(list_acc,[[label]],axis=1), delimiter=",")
     #plot accuracy
-    plot_acc(path)
+    #plot_acc(path)
 

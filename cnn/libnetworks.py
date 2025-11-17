@@ -81,7 +81,6 @@ class lenet_small_bw(pl.LightningModule):
             width = int(self.img_widths[i]/pool_size[i]-(k_size[i]-1))
             self.img_widths.append(width)
         #layers
-        self.act_fn_inv = nn.LeakyReLU(1/alpha)
         self.unpool = nn.MaxUnpool2d(2)
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.spectralunpool = la.SpectralPool2d(2)
@@ -191,9 +190,9 @@ class lenet_bw(pl.LightningModule):
         y2 = self.L3(y1)
         y2 = self.unflatten(y2)
         y3 = self.L2(y2)
-        y3 = self.spectralpool(y3)*20
+        y3 = self.spectralpool(y3)*100
         y4 = self.L1(y3)
-        y4 = self.spectralpool(y4)*20
+        y4 = self.spectralpool(y4)*100
         y5 = self.L0(y4)
         return x, y1, y2, y3, y4, y5
 

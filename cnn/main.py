@@ -54,7 +54,7 @@ networks={0: (ln.single_layer, ln.single_layer_bw),
          13: (ln.lenet_small, ln.lenet_small_bw), 
          14: (ln.lenet, ln.lenet_bw)}
           
-net, net_backward = networks[10]
+net, net_backward = networks[14]
 
 #dataset
 datasets=[MNIST, FashionMNIST, CIFAR10]
@@ -63,14 +63,14 @@ DATASET=datasets[0]
 in_channel = 3 if DATASET == CIFAR10 else 1
 
 #training approach
-trainings=["backpropagation", "simulated annealing", "quantum annealing"]
+trainings=["backpropagation", "simulated annealing", "quantum annealing", "simulated quantum annealing", "imaginary time evolution"]
 training=trainings[1]
 
 #training configuration
-N_epochs=20 #training epochs
+N_epochs=10 #training epochs
 N_samples=1000 #number of samples to use for training 
 bsize=1 #batch size (used by backpropagation)
-alpha=1 #LeakyReLU negative slope
+alpha=0.1 #LeakyReLU negative slope
 
 
 
@@ -87,6 +87,8 @@ beta_final=conf['beta_final'] # final beta
 L_list=conf['L_list'] #range of the weights in each layer (around current value)
 n_reads=conf['n_reads'] #Number of reads in quantum annealing
 t_ann=conf['t_ann'] #Annealing time in quantum annealing 
+n_shots=conf['n_shots'] #Number of measurements in ITEMC
+tau=conf['tau'] #Imaginary time to evolve the system in ITEMC 
 layer_list=conf['layer_list'] #indices of layers to be trained
 
 #################################
@@ -122,7 +124,7 @@ N_samples=min(N_samples,len(train_set))
 indices = torch.arange(N_samples)
 train_set = torch.utils.data.Subset(train_set, indices)
 #for annealing use a single batch
-bsize=len(train_set) if training.endswith("annealing") else bsize
+bsize = bsize if training == "backpropagation" else len(train_set)
 #train and validation dataloaders
 train_loader = data.DataLoader(train_set, batch_size=bsize, num_workers=4)
 val_loader = data.DataLoader(val_set, batch_size=len(val_set), num_workers=4)
@@ -137,14 +139,17 @@ print(f"Train by: {training}")
 print(f"N samples: {N_samples}")
 print(f"Batch size: {bsize}")
 print(f"N epochs: {N_epochs}")
-if training.endswith("annealing"):
+if training != "backpropagation":
     print(f"N bits: {nbit}")
-    if training.startswith("simulated"):
+    if training == "simulated annealing":
         print(f"Beta initial: {beta_in}")
         print(f"Beta final: {beta_final}")
-    else:
+    elif training.endswith("quantum annealing"):
         print(f"N reads: {n_reads}")
         print(f"Annealing time: {t_ann}")
+    elif training == "imaginary time evolution":
+        print(f"N shots: {n_shots}")
+        print(f"imaginary time: {tau}")
 
 #################################
 #Train
@@ -169,10 +174,15 @@ if training=="backpropagation":
     lc.save_plot_acc(metrics.collection, log_folder, label=0)
     
 #Train model by simulated/quantum annealing
-elif training.endswith("annealing"):
+else:
     training_step = cnn.training_step_ising if alpha==1 else cnn.training_step_ising_act
-    quantum = training.startswith("quantum")
-    label = 2 if quantum else 1
+    label = 1
+    if training == "quantum annealing":
+        label = 2
+    elif training == "simulated quantum annealing":
+        label = 3
+    elif training.endswith("evolution"):
+        label = 4
     with torch.no_grad():
         cnn.cpu()
         train_iterator=iter(train_loader)
@@ -192,8 +202,10 @@ elif training.endswith("annealing"):
                 x, y = next(train_iterator)
                 training_step([x.to(cnn.device), y.to(cnn.device)], k, N_epochs, 
                                         acc, nbit=nbit, n_rep=n_rep, beta_in=beta_in, 
-                                        beta_final=beta_final, L_list=L_list, layer_list=layer_list,
-                                        alpha=alpha, quantum=quantum, log_folder=log_folder)
+                                        beta_final=beta_final, L_list=L_list, 
+                                        layer_list=layer_list,
+                                        alpha=alpha, training=training, log_folder=log_folder, 
+                                        n_reads=n_reads, t_ann=t_ann, n_shots=n_shots, tau=tau)
             # Test model on validation and test set
             test_result = trainer.test(cnn, val_loader, verbose=False)
             acc=test_result[0]['test_acc']
@@ -206,7 +218,7 @@ elif training.endswith("annealing"):
         print("training time:",time.time()-t0)         
     print("max_acc", max_acc, "at step", k_max_acc+1)
     #load max accuracy weights
-    cnn = torch.load(log_folder+'SG/model.pt')
+    cnn = torch.load(log_folder+'SG/model.pt', weights_only=False)
     # Test model on validation and test set
     test_result = trainer.test(cnn, test_loader, verbose=False)
     print("test results")

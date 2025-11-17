@@ -6,6 +6,8 @@ import numpy as np
 from opt_einsum import contract
 import torch.nn.functional as F
 from dwave.system import DWaveSampler, EmbeddingComposite, FixedEmbeddingComposite
+from dwave.samplers import SimulatedAnnealingSampler, PathIntegralAnnealingSampler
+from libite import ITEMCSampler
 
 
 
@@ -203,7 +205,8 @@ def QuantumAnnealing(J_s, h_s, c_s, batch_idx, log_folder):
     E_tot=0
     #use sampler to minimize each ising model
     for i in tqdm.tqdm(range(c_s.shape[0]), leave=False):
-        h, J, c = h_s[i].numpy(), J_s.numpy(), c_s[i].numpy()
+        h, c = h_s[i].numpy(), c_s[i].numpy()
+        J = J_s[i].numpy() if len(J_s.shape)>2 else J_s.numpy()
         if embedding == None:
             sampleset = sampler.sample_ising(h, J, return_embedding=True, 
                                              num_reads=n_reads, annealing_time=t_ann)
@@ -217,6 +220,28 @@ def QuantumAnnealing(J_s, h_s, c_s, batch_idx, log_folder):
         c_s[i] = torch.tensor(list(sampleset.samples()[0].values()))
         E_tot+=list(sampleset.data(fields=['energy']))[0][0]
     return c_s, E_tot
+    
+#Simulated Quantum annealing using dwave
+def SimulatedQuantumAnnealing(J_s, h_s, c_s, n_reads, t_ann, i):
+    sampler = PathIntegralAnnealingSampler()
+    #use sampler to minimize each ising model
+    h, c = h_s[i].numpy(), c_s[i].numpy()
+    J = J_s[i].numpy() if len(J_s.shape)>2 else J_s.numpy()
+    sampleset = sampler.sample_ising(h, J, num_reads=10, annealing_time=0.1)
+    #return spin configuration of minimum energy
+    c_s[i] = torch.tensor(list(sampleset.samples()[0].values()))
+    #E_tot+=list(sampleset.data(fields=['energy']))[0][0]
+    
+    
+#def multiprocess ITEMC_step(J_s, h_s, c_s, batch_idx, log_folder):
+def ITEMC(J_s, h_s, c_s, n_shots, tau, i):
+    h, c = h_s[i].numpy(), c_s[i].numpy()
+    J = J_s[i].numpy() if len(J_s.shape)>2 else J_s.numpy()
+    sampler = ITEMCSampler(n_shots=n_shots, tau=tau, n_qubits=len(c))
+    sampleset = sampler.sample(h, J)
+    #return spin configuration of minimum energy
+    c_s[i] = torch.tensor(sampleset)
+
 
 ##Quantum annealing using dwave with initial_state
 #def QuantumAnnealing_in_state(J_s, h_s, c_s, log_folder):
