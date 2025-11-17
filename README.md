@@ -5,7 +5,7 @@ The correspondence can be used to train CNNs using simulated or quantum annealin
 
 See [Neural Network - Spin Glass correspondence.pdf](./Neural%20Network%20-%20Spin%20Glass%20correspondence.pdf) for details.
 
-The test code requires pytorch and the dwave-system api (`pip install dwave-system`).
+The test code requires pytorch, the dwave-system api (`pip install dwave-system`) and qiskit to run the ITEMC training method (`pip install qiskit`, `pip install qiskit-ibm-runtime`).
 
 To run the tests, first set the desired configuration in [main.py](./cnn/main.py) (network, dataset, training method,...):
 
@@ -19,7 +19,7 @@ DATASET=datasets[0]
 in_channel = 3 if DATASET == CIFAR10 else 1
 
 #training approach
-trainings=["backpropagation", "simulated annealing", "quantum annealing"]
+trainings=["backpropagation", "simulated annealing", "quantum annealing",  "simulated quantum annealing", "imaginary time evolution"]
 training=trainings[1]
 
 #training configuration
