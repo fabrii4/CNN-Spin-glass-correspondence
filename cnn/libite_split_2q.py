@@ -1,4 +1,4 @@
-from qiskit.circuit import QuantumCircuit, QuantumRegister, Parameter
+from qiskit.circuit import QuantumCircuit, QuantumRegister, ClassicalRegister, AncillaRegister, Parameter
 from qiskit.quantum_info import Pauli, PauliList, SparsePauliOp
 from qiskit.primitives import StatevectorSampler
 #Using qiskit circuit
@@ -14,6 +14,9 @@ from qiskit_ibm_runtime import SamplerV2 as Sampler, EstimatorV2 as Estimator
 import numpy as np
 import json
 from scipy.optimize import minimize
+import torch.multiprocessing as mp
+from itertools import repeat
+from torch import seed
 
 
 # auxiliary function to load api key
@@ -43,6 +46,16 @@ def int_to_spins(x, n_qubits, spin_sign=1):
     #reverse order (in qiskit last is first)
     spins.reverse()
     return spins
+    
+# auxiliary function to sample most likely bitstring
+def bit_to_spins(x, spin_sign=1):
+    if spin_sign==-1:
+        #no need to convert if x = (1-z)/2
+        spin = 1-2*int(x)
+    else:
+        #convert spin to bit if x = (1+z)/2
+        spin = 2*((int(x)+1)%2)-1
+    return spin
 
 
 # auxiliary function to set error suppression on quantum hardware
@@ -86,83 +99,131 @@ class ITEMCSampler:
             set_error_suppression(sampler)
 
         #init gate based solvers
-        self.solver = ITEMC_algo(sampler=sampler, pm=pm, reps=reps, tau=tau, n_shots=n_shots)
+        self.solver = ITEMC_algo(sampler=sampler, pm=pm, tau=tau, n_shots=n_shots)
 
     def sample(self, h, J):
+        n_qubits_max=8
+        n_qubits=n_qubits_max-1
+        indices_list=[]
+        indices=[]
+        for i in range(len(h)):
+            if len(indices)==n_qubits:
+                indices_list.append(indices)
+                indices=[]
+            indices.append(i)
+        if len(indices)>0:
+            indices_list.append(indices)
+
+        #calculate angles to be used in rotation matrices
+        theta_i, theta_ij = {}, {}
+        h_max=max(abs(h))
+        J_max=max(abs(J.flatten()))
+        #scale tau
+        tau=self.solver.tau/h_max
+        tau_J=self.solver.tau/J_max
+        #exit()
+        for i in (range(len(h))):
+            theta_i[i]=2*np.arctan(np.tanh(tau*h[i]))
+            for j in range(len(h)):
+                if j!=i:
+                    #linear terms
+                    theta_i[j]=2*np.arctan(np.tanh(tau*h[j]))
+                    #quadratic terms
+                    if J[i,j]!=0:
+                        theta_ij[(i,j)]=self.solver.get_theta_ij(theta_i[i], theta_i[j], J[i,j]*tau_J)
         #build circuit
-        self.solver.build_circuit(h, J)
+        samples=[0]*len(h)            
+        for indices in indices_list:
+            #p=mp.Process(target=self.sample_i, args=(h, J, samples, i))
+            #p.daemon = False
+            #p.start()
+            #p.join()
+            self.sample_i(theta_i, theta_ij, samples, indices)
+                
+        return samples
+        
+    #sample a single qubit    
+    def sample_i(self, h, J, samples, indices):
+        self.solver.build_circuit(h, J, indices)
         #run optimization algorithm
-        samples = self.solver.run_quantum_circuit()
+        samples_i = self.solver.run_quantum_circuit()
         #filter best sample
-        #best_sample = self.check_constraint(samples, N_phases)
-        return samples[0]
+        for i, idx in enumerate(indices):
+            samples[idx]=samples_i[0][i]
 
 
 class ITEMC_algo:
-    def __init__(self, sampler, pm, reps=2, tau=0.1, n_shots = 100):
+    def __init__(self, sampler, pm, tau=0.1, n_shots = 100):
         #sign of spin variable z when converting from binary x: x=(1+z)/2 or x=(1-z)/2
         self.spin_sign=-1
-        self.reps = reps
         self.tau = tau
         self.n_shots = n_shots
         self.sampler = sampler
         self.pm = pm
 
+#    def run_quantum_circuit(self):
+#        job = self.sampler.run([self.tp_circuit], shots=self.n_shots)
+#        result = job.result()
+#        states = result[0].data.c.get_counts()
+#        ordered_states=sorted(states.items(), key=lambda item: item[1], reverse=True)
+#        samples=[bit_to_spins(state[0], self.spin_sign) for state in ordered_states]
+#        return samples
+        
     def run_quantum_circuit(self):
         job = self.sampler.run([self.tp_circuit], shots=self.n_shots)
         result = job.result()
-        states = result[0].data.meas.get_int_counts()
+        #states = result[0].data.meas.get_int_counts()
+        states = result[0].data.c.get_int_counts()
         ordered_states=sorted(states.items(), key=lambda item: item[1], reverse=True)
         samples=[int_to_spins(state[0], self.n_qubits, self.spin_sign) for state in ordered_states]
         return samples
 
-    def build_circuit(self, h, J):
-        self.n_qubits = len(h)
-        #compute ITE Hamiltonian parameters theta_i, theta_ij
-        theta_i, theta_ij = {}, {}
-        for i in range(len(h)):
-            #linear terms
-            theta_i[i]=2*np.arctan(np.tanh(self.tau*h[i]))
-            for j in range(i):
-                #quadratic terms
-                if J[i,j]!=0:
-                    theta_ij[(i,j)]=self.get_theta_ij(theta_i[i], theta_i[j], 2*J[i,j]*self.tau)
-        #order quadratic terms in ascending order
-        theta_ij = dict(sorted(theta_ij.items(), key=lambda item: item[1][0]**2+item[1][1]**2, reverse=True))
-        #order quadratic terms so that independent pairs are applied first
-        #[(i,j), (l,k),...] with i!=l, j!=k
-        theta_ij_ind, theta_ij_dep = {}, {}
-        for (i, j), theta in theta_ij.items():
-            if any(i in ij for ij in theta_ij_ind.keys()) or any(j in ij for ij in theta_ij_ind.keys()):
-                theta_ij_dep[(i,j)]=theta
-            else:
-                theta_ij_ind[(i,j)]=theta
+    def build_circuit(self, theta_i, theta_ij, indices):
+        self.n_qubits = len(indices)
+#        #compute ITE Hamiltonian parameters theta_i, theta_ij
+#        theta_i, theta_ij = {}, {}
+#        for i in indices:
+#            theta_i[i]=2*np.arctan(np.tanh(self.tau*h[i]))
+#            for j in range(len(h)):
+#                if j!=i:
+#                    #linear terms
+#                    theta_i[j]=2*np.arctan(np.tanh(self.tau*h[j]))
+#                    #quadratic terms
+#                    if J[i,j]!=0:
+#                        theta_ij[(i,j)]=self.get_theta_ij(theta_i[i], theta_i[j], J[i,j]*self.tau)
         #init quantum circuit
         register = QuantumRegister(self.n_qubits)
-        self.circuit = QuantumCircuit(register)
+        ancillas = AncillaRegister(1)
+        classical = ClassicalRegister(self.n_qubits, 'c')
+        self.circuit = QuantumCircuit(register, ancillas, classical)
         #Apply Hadamard gate to create an equal superposition of all configuration states
         self.circuit.h(register)
-        #Apply rotation gates to mimic ITE of Hamiltonian linear terms
-        for i, theta in theta_i.items():
-            if h[i]!=0:
-                self.circuit.ry(theta, i)
-        #Apply 2-qubits rotation gates to mimic ITE of Hamiltonian quadratic terms
-        #independent first
-        for (i,j), theta in theta_ij_ind.items():
-            if J[i,j]!=0:
-                self.circuit.append(RZYYZ(theta[0], theta[1]), [i,j])
-        #dependent last
-        for (i,j), theta in theta_ij_dep.items():
-            if J[i,j]!=0:
-                self.circuit.append(RZYYZ(theta[0], theta[1]), [i,j])
+        #Apply 1-qubit rotation gate on target qubit
+        for i in range(self.n_qubits):
+            i_q=indices[i]
+            i_a=self.n_qubits
+            if theta_i[i_q]!=0:
+                self.circuit.ry(theta_i[i_q], i)
+            for j in range(len(theta_i)):
+                if j!=i_q:
+                    #reset ancilla qubits
+                    self.circuit.reset(i_a)
+                    #apply Hadamard on acillas qubits
+                    self.circuit.h(i_a)
+                    #Apply 1-qubit rotation gates on ancillas qubits
+                    if theta_i[j]!=0:
+                        self.circuit.ry(theta_i[j], i_a)
+                    #Apply 2-qubits rotation gates between target and all other qubits
+                    if sum(theta_ij[(i_q,j)])!=0:
+                        theta = theta_ij[(i_q,j)]
+                        self.circuit.append(RZYYZ(theta[0], theta[1]), [i,i_a])
         #add measurement
-        self.circuit.measure_all()
+        self.circuit.measure(register, classical)
         #transpile circuit for quantum hardware
         self.tp_circuit = self.pm.run(self.circuit)
         #import matplotlib.pyplot as plt
-        #self.circuit.draw("mpl")
-        #plt.show()
-        #plt.savefig('circuit.pdf')
+        #self.circuit.draw(output="mpl", filename="circuit-mpl.jpeg")
+        #exit()
 
     def get_theta_ij(self, t_i, t_j, t_ij):
         a=np.cosh(t_ij)-np.sinh(t_ij)*np.sin(t_i)*np.sin(t_j)

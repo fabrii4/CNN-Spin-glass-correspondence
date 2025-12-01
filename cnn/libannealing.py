@@ -7,7 +7,8 @@ from opt_einsum import contract
 import torch.nn.functional as F
 from dwave.system import DWaveSampler, EmbeddingComposite, FixedEmbeddingComposite
 from dwave.samplers import SimulatedAnnealingSampler, PathIntegralAnnealingSampler
-from libite import ITEMCSampler
+#from libite import ITEMCSampler
+from libite_split_2q import ITEMCSampler
 
 
 
@@ -59,12 +60,14 @@ def conv_layer_to_ising(s, f1z, c, K, L, nbit=8):
     t_bin=torch.tensor([2**e for e in range(nbit)]).to(s_patch.device)
     #J
     J_orig=F*contract('abijkl,acijmn->bklcmn', s_patch, s_patch)
-    J=(L/Nb)**2*contract('bklcmn,q,w->bklqcmnw', J_orig, t_bin, t_bin)
+    #J=(L/Nb)**2*contract('bklcmn,q,w->bklqcmnw', J_orig, t_bin, t_bin)
+    J=(L/Nb)*contract('bklcmn,q,w->bklqcmnw', J_orig, t_bin, t_bin)
     J_s=J.flatten(4,-1).flatten(0,-2)
     #h
     h_orig=-2*F*contract('abijkl,acij->bckl', s_patch, f1z)
     h=h_orig+2*contract('cklbmn,abmn->cakl', J_orig, c)
-    h=L/Nb*contract('bckl,q->cbklq', h, t_bin)
+    #h=L/Nb*contract('bckl,q->cbklq', h, t_bin)
+    h=contract('bckl,q->cbklq', h, t_bin)
     h_s=h.flatten(1,-1)
     #weight to spin configuration
     c_s=weight_to_spin(c, c, L, nbit)
@@ -79,12 +82,14 @@ def linear_layer_to_ising(s, f1z, c, L, nbit=8):
     t_bin=torch.tensor([2**e for e in range(nbit)]).to(s.device)
     #J
     J_orig=F*contract('ai,aj->ij', s, s)
-    J=(L/Nb)**2*contract('ij,q,w->iqjw', J_orig, t_bin, t_bin)
+    #J=(L/Nb)**2*contract('ij,q,w->iqjw', J_orig, t_bin, t_bin)
+    J=(L/Nb)*contract('ij,q,w->iqjw', J_orig, t_bin, t_bin)
     J_s=J.flatten(2,-1).flatten(0,-2)
     #h
     h_orig=-2*F*contract('aj,ai->ij', s, f1z)
     h=h_orig+2*contract('jl,il->ij', J_orig, c)
-    h=L/Nb*contract('ij,q->ijq', h, t_bin)
+    #h=L/Nb*contract('ij,q->ijq', h, t_bin)
+    h=contract('ij,q->ijq', h, t_bin)
     h_s=h.flatten(1,-1)
     #weight to spin configuration
     c_s=weight_to_spin(c, c, L, nbit)
@@ -112,13 +117,15 @@ def conv_layer_to_ising_act(s, gamma, f1z, c, K, L, nbit=8):
     #J
     #J_orig=F*contract('abdijkl,acdijmn->dbklcmn', s_patch, s_patch)
     J_orig=F*contract('abijkl,acijmn,adij->dbklcmn', s_patch, s_patch, gamma**2)
-    J=(L/Nb)**2*contract('dbklcmn,q,w->dbklqcmnw', J_orig, t_bin, t_bin)
+    #J=(L/Nb)**2*contract('dbklcmn,q,w->dbklqcmnw', J_orig, t_bin, t_bin)
+    J=(L/Nb)*contract('dbklcmn,q,w->dbklqcmnw', J_orig, t_bin, t_bin)
     J_s=J.flatten(5,-1).flatten(1,-2)
     #h
     #h_orig=-2*F*contract('abcijkl,acij->bckl', s_patch, f1z)
     h_orig=-2*F*contract('abijkl,acij->bckl', s_patch, f1z*gamma)
     h=h_orig+2*contract('dbklcmn,dcmn->bdkl', J_orig, c)
-    h=L/Nb*contract('bdkl,q->dbklq', h, t_bin)
+    #h=L/Nb*contract('bdkl,q->dbklq', h, t_bin)
+    h=contract('bdkl,q->dbklq', h, t_bin)
     h_s=h.flatten(1,-1)
     #weight to spin configuration
     c_s=weight_to_spin(c, c, L, nbit)
@@ -135,12 +142,14 @@ def linear_layer_to_ising_act(s, gamma, f1z, c, L, nbit=8):
     t_bin=torch.tensor([2**e for e in range(nbit)]).to(s.device)
     #J
     J_orig=F*contract('aji,ali->ijl', s, s)
-    J=(L/Nb)**2*contract('ijl,q,w->ijqlw', J_orig, t_bin, t_bin)
+    #J=(L/Nb)**2*contract('ijl,q,w->ijqlw', J_orig, t_bin, t_bin)
+    J=(L/Nb)*contract('ijl,q,w->ijqlw', J_orig, t_bin, t_bin)
     J_s=J.flatten(3,-1).flatten(1,-2)
     #h
     h_orig=-2*F*contract('aji,ai->ij', s, f1z)
     h=h_orig+2*contract('ijl,il->ij', J_orig, c)
-    h=L/Nb*contract('ij,q->ijq', h, t_bin)
+    #h=L/Nb*contract('ij,q->ijq', h, t_bin)
+    h=contract('ij,q->ijq', h, t_bin)
     h_s=h.flatten(1,-1)
     #weight to spin configuration
     c_s=weight_to_spin(c, c, L, nbit)

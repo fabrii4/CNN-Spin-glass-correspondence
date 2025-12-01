@@ -54,7 +54,7 @@ networks={0: (ln.single_layer, ln.single_layer_bw),
          13: (ln.lenet_small, ln.lenet_small_bw), 
          14: (ln.lenet, ln.lenet_bw)}
           
-net, net_backward = networks[14]
+net, net_backward = networks[2]
 
 #dataset
 datasets=[MNIST, FashionMNIST, CIFAR10]
@@ -64,10 +64,10 @@ in_channel = 3 if DATASET == CIFAR10 else 1
 
 #training approach
 trainings=["backpropagation", "simulated annealing", "quantum annealing", "simulated quantum annealing", "imaginary time evolution"]
-training=trainings[1]
+training=trainings[4]
 
 #training configuration
-N_epochs=10 #training epochs
+N_epochs=20 #training epochs
 N_samples=1000 #number of samples to use for training 
 bsize=1 #batch size (used by backpropagation)
 alpha=0.1 #LeakyReLU negative slope

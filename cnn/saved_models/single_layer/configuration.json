@@ -1,10 +1,12 @@
 {
-    "nbit": 8, 
+    "nbit": 2, 
     "n_rep": 1, 
     "beta_in": 5000, 
     "beta_final": 5000000, 
     "L_list": [[0.1, 0.0001]], 
     "n_reads": 500, 
     "t_ann": 1,
+    "n_shots": 25, 
+    "tau": 1200,
     "layer_list": [0]
 }

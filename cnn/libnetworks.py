@@ -430,7 +430,8 @@ class single_layer_small(pl.LightningModule):
         super().__init__()
         self.act_fn = nn.LeakyReLU(alpha)
         self.flatten = nn.Flatten()
-        self.maxpool = nn.MaxPool2d(8)
+        #self.maxpool = nn.MaxPool2d(8)
+        self.spectralpool = la.SpectralPool2d((1/8,1/8))
         self.L0 = nn.Linear(16*in_channel, n_cat, bias=False).requires_grad_(0 in l_train)
         self.layer_list=[self.L0]
         
@@ -438,11 +439,12 @@ class single_layer_small(pl.LightningModule):
         nn.init.xavier_uniform_(self.L0.weight)
         
     def forward_return_all(self, x):
-        x = self.maxpool(x)
+        #x = self.maxpool(x)
+        x = self.spectralpool(x)
         x = self.flatten(x)
-        y1 = self.L0(x)
-        y1 = self.act_fn(y1)
-        return x, y1
+        y1na = self.L0(x)
+        y1 = self.act_fn(y1na)
+        return x, y1, y1na
         
     def forward(self, x):
         y = self.forward_return_all(x)
@@ -462,8 +464,8 @@ class single_layer_small_bw(pl.LightningModule):
         self.L0.weight = w_L0
         
     def forward_return_all(self, x):
-        x = F.one_hot(x, num_classes=10)*1.
-        x = self.act_fn_inv(x)#.clamp(-L,100*L)
+        x = F.one_hot(x, num_classes=10)*10.
+        #x = self.act_fn_inv(x)#.clamp(-L,100*L)
         y1 = self.L0(x)
         return x, y1
         
